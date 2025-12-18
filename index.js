@@ -23,7 +23,7 @@ const commands = [
         .addStringOption(opt => opt.setName("reason").setDescription("Reason").setRequired(false)),
 ].map(cmd => cmd.toJSON());
 
-// --- Register commands ---
+// --- Register slash commands ---
 const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
 (async () => {
     try {
@@ -44,7 +44,7 @@ client.on("interactionCreate", async interaction => {
 
     // Admin-only
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-        await interaction.reply({ content: "You must be an Administrator.", flags: 64 });
+        await interaction.reply({ content: "You must be an Administrator." });
         return;
     }
 
@@ -52,15 +52,15 @@ client.on("interactionCreate", async interaction => {
     const userId = interaction.options.getInteger("userid");
     const reason = interaction.options.getString("reason") || "No reason";
 
-    // --- Ephemeral processing embed ---
+    // --- Processing embed ---
     const processingEmbed = new EmbedBuilder()
         .setTitle("Moderation Request")
         .setDescription("Your request is being processed...")
         .setColor(0xFFFF00);
 
-    await interaction.reply({ embeds: [processingEmbed], flags: 64 });
+    await interaction.reply({ embeds: [processingEmbed] });
 
-    // --- Confirmation embed with Roblox info ---
+    // --- Confirmation embed with buttons ---
     const confirmEmbed = new EmbedBuilder()
         .setTitle(`Confirm ${command.toUpperCase()} Action`)
         .setDescription(`Do you want to ${command} this player?`)
@@ -78,30 +78,27 @@ client.on("interactionCreate", async interaction => {
             new ButtonBuilder().setCustomId("cancel").setLabel("Cancel").setStyle(ButtonStyle.Danger)
         );
 
-    // --- Send ephemeral follow-up with buttons ---
-    const confirmMessage = await interaction.followUp({ embeds: [confirmEmbed], components: [row], flags: 64 });
+    // Edit original message to confirmation with buttons
+    const confirmMessage = await interaction.editReply({ embeds: [confirmEmbed], components: [row] });
 
-    // --- Await single button interaction ---
-    try {
-        const btnInteraction = await confirmMessage.awaitMessageComponent({
-            componentType: "BUTTON",
-            time: 60000
-        });
+    // Collector for buttons (works reliably now because messages are non-ephemeral)
+    const collector = confirmMessage.createMessageComponentCollector({ componentType: "BUTTON", time: 60000 });
 
+    collector.on("collect", async btnInteraction => {
         if (btnInteraction.user.id !== interaction.user.id) {
-            await btnInteraction.reply({ content: "You cannot interact with this button.", flags: 64 });
+            await btnInteraction.reply({ content: "You cannot interact with this button.", ephemeral: true });
             return;
         }
 
-        await btnInteraction.deferUpdate(); // prevents "interaction failed"
+        await btnInteraction.deferUpdate(); // prevent "interaction failed"
 
         if (btnInteraction.customId === "accept") {
             queue.push({ action: command, userId, reason });
 
-            // Edit ephemeral follow-up to show accepted
+            // Edit message to show accepted
             await confirmMessage.edit({ content: `✅ ${command} confirmed for user ${userId}`, embeds: [], components: [] });
 
-            // Send non-ephemeral final confirmation embed
+            // Non-ephemeral final embed
             const completedEmbed = new EmbedBuilder()
                 .setTitle(`${command.toUpperCase()} Completed`)
                 .setDescription(`The ${command} command was successfully executed.`)
@@ -120,10 +117,14 @@ client.on("interactionCreate", async interaction => {
             await confirmMessage.edit({ content: `❌ ${command} canceled`, embeds: [], components: [] });
         }
 
-    } catch (err) {
-        // Timeout
-        await confirmMessage.edit({ content: "⏰ Confirmation timed out.", embeds: [], components: [] });
-    }
+        collector.stop();
+    });
+
+    collector.on("end", collected => {
+        if (collected.size === 0) {
+            confirmMessage.edit({ content: "⏰ Confirmation timed out.", embeds: [], components: [] });
+        }
+    });
 });
 
 // --- Express endpoint for Roblox ---
