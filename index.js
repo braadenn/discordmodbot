@@ -4,7 +4,7 @@ const express = require("express");
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
-const ROBLOX_PLACE_NAME = process.env.ROBLOX_PLACE_NAME || "My Roblox Place"; // optional env variable
+const ROBLOX_PLACE_NAME = process.env.ROBLOX_PLACE_NAME || "My Roblox Place";
 
 const queue = []; // Roblox commands
 
@@ -23,7 +23,7 @@ const commands = [
         .addStringOption(opt => opt.setName("reason").setDescription("Reason").setRequired(false)),
 ].map(cmd => cmd.toJSON());
 
-// --- Register slash commands ---
+// --- Register commands ---
 const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
 (async () => {
     try {
@@ -81,10 +81,13 @@ client.on("interactionCreate", async interaction => {
     // --- Send ephemeral follow-up with buttons ---
     const confirmMessage = await interaction.followUp({ embeds: [confirmEmbed], components: [row], flags: 64 });
 
-    // Collector for buttons
-    const collector = confirmMessage.createMessageComponentCollector({ componentType: "BUTTON", time: 60000 });
+    // --- Await single button interaction ---
+    try {
+        const btnInteraction = await confirmMessage.awaitMessageComponent({
+            componentType: "BUTTON",
+            time: 60000
+        });
 
-    collector.on("collect", async btnInteraction => {
         if (btnInteraction.user.id !== interaction.user.id) {
             await btnInteraction.reply({ content: "You cannot interact with this button.", flags: 64 });
             return;
@@ -95,10 +98,10 @@ client.on("interactionCreate", async interaction => {
         if (btnInteraction.customId === "accept") {
             queue.push({ action: command, userId, reason });
 
-            // Edit ephemeral message
+            // Edit ephemeral follow-up to show accepted
             await confirmMessage.edit({ content: `✅ ${command} confirmed for user ${userId}`, embeds: [], components: [] });
 
-            // Send non-ephemeral confirmation embed
+            // Send non-ephemeral final confirmation embed
             const completedEmbed = new EmbedBuilder()
                 .setTitle(`${command.toUpperCase()} Completed`)
                 .setDescription(`The ${command} command was successfully executed.`)
@@ -117,14 +120,10 @@ client.on("interactionCreate", async interaction => {
             await confirmMessage.edit({ content: `❌ ${command} canceled`, embeds: [], components: [] });
         }
 
-        collector.stop();
-    });
-
-    collector.on("end", collected => {
-        if (collected.size === 0) {
-            confirmMessage.edit({ content: "⏰ Confirmation timed out.", embeds: [], components: [] });
-        }
-    });
+    } catch (err) {
+        // Timeout
+        await confirmMessage.edit({ content: "⏰ Confirmation timed out.", embeds: [], components: [] });
+    }
 });
 
 // --- Express endpoint for Roblox ---
