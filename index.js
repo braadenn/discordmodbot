@@ -44,7 +44,7 @@ client.on("interactionCreate", async interaction => {
 
     // Admin-only
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-        await interaction.reply({ content: "You must be an Administrator." });
+        await interaction.reply({ content: "You must be an Administrator.", ephemeral: true });
         return;
     }
 
@@ -52,15 +52,7 @@ client.on("interactionCreate", async interaction => {
     const userId = interaction.options.getInteger("userid");
     const reason = interaction.options.getString("reason") || "No reason";
 
-    // --- Processing embed ---
-    const processingEmbed = new EmbedBuilder()
-        .setTitle("Moderation Request")
-        .setDescription("Your request is being processed...")
-        .setColor(0xFFFF00);
-
-    await interaction.reply({ embeds: [processingEmbed] });
-
-    // --- Confirmation embed with buttons ---
+    // --- Confirmation embed + buttons ---
     const confirmEmbed = new EmbedBuilder()
         .setTitle(`Confirm ${command.toUpperCase()} Action`)
         .setDescription(`Do you want to ${command} this player?`)
@@ -78,10 +70,10 @@ client.on("interactionCreate", async interaction => {
             new ButtonBuilder().setCustomId("cancel").setLabel("Cancel").setStyle(ButtonStyle.Danger)
         );
 
-    // Edit original message to confirmation with buttons
-    const confirmMessage = await interaction.editReply({ embeds: [confirmEmbed], components: [row] });
+    // --- Send the confirmation message (reply only once) ---
+    const confirmMessage = await interaction.reply({ embeds: [confirmEmbed], components: [row], fetchReply: true });
 
-    // Collector for buttons (works reliably now because messages are non-ephemeral)
+    // --- Collector attached to this message ---
     const collector = confirmMessage.createMessageComponentCollector({ componentType: "BUTTON", time: 60000 });
 
     collector.on("collect", async btnInteraction => {
@@ -90,15 +82,13 @@ client.on("interactionCreate", async interaction => {
             return;
         }
 
-        await btnInteraction.deferUpdate(); // prevent "interaction failed"
+        await btnInteraction.deferUpdate(); // avoids "interaction failed"
 
         if (btnInteraction.customId === "accept") {
             queue.push({ action: command, userId, reason });
 
-            // Edit message to show accepted
             await confirmMessage.edit({ content: `✅ ${command} confirmed for user ${userId}`, embeds: [], components: [] });
 
-            // Non-ephemeral final embed
             const completedEmbed = new EmbedBuilder()
                 .setTitle(`${command.toUpperCase()} Completed`)
                 .setDescription(`The ${command} command was successfully executed.`)
@@ -126,6 +116,7 @@ client.on("interactionCreate", async interaction => {
         }
     });
 });
+
 
 // --- Express endpoint for Roblox ---
 const app = express();
