@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, PermissionsBitField } = require("discord.js");
 const express = require("express");
 
-const BOT_TOKEN = "MTQ1MTAyNTk2NDc2NjMzNTA1Nw.GZzbBN.4r_D7EShf7F3byoFyvW2uCkbL6KF9dOfnD2yYk";
+const BOT_TOKEN = process.env.BOT_TOKEN;
 
 const app = express();
 app.use(express.json());
