@@ -4,6 +4,7 @@ const express = require("express");
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
+const ROBLOX_PLACE_NAME = process.env.ROBLOX_PLACE_NAME || "My Roblox Place"; // optional env variable
 
 const queue = []; // Roblox commands
 
@@ -22,7 +23,7 @@ const commands = [
         .addStringOption(opt => opt.setName("reason").setDescription("Reason").setRequired(false)),
 ].map(cmd => cmd.toJSON());
 
-// --- Register commands ---
+// --- Register slash commands ---
 const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
 (async () => {
     try {
@@ -51,7 +52,7 @@ client.on("interactionCreate", async interaction => {
     const userId = interaction.options.getInteger("userid");
     const reason = interaction.options.getString("reason") || "No reason";
 
-    // --- Ephemeral processing message ---
+    // --- Ephemeral processing embed ---
     const processingEmbed = new EmbedBuilder()
         .setTitle("Moderation Request")
         .setDescription("Your request is being processed...")
@@ -59,14 +60,14 @@ client.on("interactionCreate", async interaction => {
 
     await interaction.reply({ embeds: [processingEmbed], flags: 64 });
 
-    // --- Confirmation embed with Accept/Cancel buttons ---
+    // --- Confirmation embed with Roblox info ---
     const confirmEmbed = new EmbedBuilder()
         .setTitle(`Confirm ${command.toUpperCase()} Action`)
         .setDescription(`Do you want to ${command} this player?`)
         .addFields(
             { name: "Target Roblox UserId", value: `${userId}`, inline: true },
             { name: "Reason", value: reason, inline: true },
-            { name: "Place", value: interaction.guild.name, inline: true }
+            { name: "Place", value: ROBLOX_PLACE_NAME, inline: true }
         )
         .setThumbnail(`https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=150&height=150&format=png`)
         .setColor(0xFF0000);
@@ -77,20 +78,25 @@ client.on("interactionCreate", async interaction => {
             new ButtonBuilder().setCustomId("cancel").setLabel("Cancel").setStyle(ButtonStyle.Danger)
         );
 
-    // Edit the ephemeral reply to show confirmation
-    await interaction.editReply({ embeds: [confirmEmbed], components: [row], flags: 64 });
+    // --- Send ephemeral follow-up with buttons ---
+    const confirmMessage = await interaction.followUp({ embeds: [confirmEmbed], components: [row], flags: 64 });
 
-    // Collector for ephemeral buttons
-    const filter = i => i.user.id === interaction.user.id;
-    const collector = interaction.channel.createMessageComponentCollector({ filter, componentType: "BUTTON", time: 60000 });
+    // Collector for buttons
+    const collector = confirmMessage.createMessageComponentCollector({ componentType: "BUTTON", time: 60000 });
 
     collector.on("collect", async btnInteraction => {
+        if (btnInteraction.user.id !== interaction.user.id) {
+            await btnInteraction.reply({ content: "You cannot interact with this button.", flags: 64 });
+            return;
+        }
+
+        await btnInteraction.deferUpdate(); // prevents "interaction failed"
+
         if (btnInteraction.customId === "accept") {
-            // Push command to Roblox queue
             queue.push({ action: command, userId, reason });
 
             // Edit ephemeral message
-            await btnInteraction.update({ content: `✅ ${command} confirmed for user ${userId}`, embeds: [], components: [], flags: 64 });
+            await confirmMessage.edit({ content: `✅ ${command} confirmed for user ${userId}`, embeds: [], components: [] });
 
             // Send non-ephemeral confirmation embed
             const completedEmbed = new EmbedBuilder()
@@ -100,7 +106,7 @@ client.on("interactionCreate", async interaction => {
                     { name: "Target Roblox UserId", value: `${userId}`, inline: true },
                     { name: "Reason", value: reason, inline: true },
                     { name: "Moderator", value: `${interaction.user.tag}`, inline: true },
-                    { name: "Place", value: interaction.guild.name, inline: true }
+                    { name: "Place", value: ROBLOX_PLACE_NAME, inline: true }
                 )
                 .setThumbnail(`https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=150&height=150&format=png`)
                 .setColor(command === "ban" ? 0xFF0000 : 0xFFA500);
@@ -108,14 +114,15 @@ client.on("interactionCreate", async interaction => {
             await interaction.channel.send({ embeds: [completedEmbed] });
 
         } else if (btnInteraction.customId === "cancel") {
-            await btnInteraction.update({ content: `❌ ${command} canceled`, embeds: [], components: [], flags: 64 });
+            await confirmMessage.edit({ content: `❌ ${command} canceled`, embeds: [], components: [] });
         }
+
         collector.stop();
     });
 
     collector.on("end", collected => {
         if (collected.size === 0) {
-            interaction.editReply({ content: "⏰ Confirmation timed out.", embeds: [], components: [], flags: 64 });
+            confirmMessage.edit({ content: "⏰ Confirmation timed out.", embeds: [], components: [] });
         }
     });
 });
